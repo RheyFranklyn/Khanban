@@ -99,19 +99,17 @@ class KanbanBoard {
     }
 }
 
-// =========================================================
-// UI / rendering layer — talks to KanbanBoard, never touches
-// arrayOfTask directly. Everything below this line is new.
-// =========================================================
+
+
 
 const board = new KanbanBoard();
 
-// seed data so the board isn't empty on load — replace with your own input flow
+// premade data
 board.addTask('Design empty states for the inbox', 'Cover loading and error states', 'priority', 'AK');
 board.addTask('Audit color contrast of dark mode', 'WCAG AA pass', 'urgent', 'AK');
 board.addTask('Write copy for the users', 'Welcome + day 3 + day 7', 'marketing', 'JM');
 board.addTask('Migrate billing service', '', 'planning', 'RV');
-board.updateTaskStatus(4, 'in-progress'); // example of moving a seeded task
+board.updateTaskStatus(4, 'in-progress'); 
 
 const STATUSES: ColumnStatus[] = ['todo', 'in-progress', 'review', 'done'];
 let currentSearch = '';
