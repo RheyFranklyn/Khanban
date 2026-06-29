@@ -193,8 +193,13 @@ let dragCard: HTMLElement | null = null;
 let dragId: number | null = null;
 let startX = 0, startY = 0;
 let placeholder: HTMLElement | null = null;
-let rafPending = false;
 let lastClientX = 0, lastClientY = 0;
+
+// spring-follow state: the card eases toward the pointer instead of snapping to it
+let renderX = 0, renderY = 0;   // current rendered offset
+let targetX = 0, targetY = 0;   // raw pointer offset
+let dragLoopActive = false;
+const FOLLOW_EASE = 0.32; // lower = laggier/floatier, higher = snappier
 
 function makePlaceholder(height: number): HTMLElement {
     const ph = document.createElement('div');
@@ -216,6 +221,8 @@ function onPointerDown(e: PointerEvent): void {
     dragId = Number(card.dataset.id);
     startX = e.clientX;
     startY = e.clientY;
+    renderX = 0; renderY = 0;
+    targetX = 0; targetY = 0;
 
     const rect = card.getBoundingClientRect();
     placeholder = makePlaceholder(rect.height);
@@ -227,34 +234,47 @@ function onPointerDown(e: PointerEvent): void {
     card.style.left = `${rect.left}px`;
     card.style.margin = '0';
     card.style.pointerEvents = 'none';
-    card.classList.add('dragging');
 
     document.body.appendChild(card);
-    card.setPointerCapture(e.pointerId);
+    document.body.classList.add('is-dragging-card');
 
+    // quick pop on pickup, then switch to untransitioned tracking
+    card.style.transition = 'transform 120ms cubic-bezier(0.2, 0, 0, 1), box-shadow 120ms ease';
+    card.style.transform = 'scale(1.04)';
+    card.classList.add('dragging');
+
+    setTimeout(() => {
+        if (dragCard === card) card.style.transition = 'none';
+    }, 120);
+
+    card.setPointerCapture(e.pointerId);
     document.addEventListener('pointermove', onPointerMove);
     document.addEventListener('pointerup', onPointerUp);
+
+    dragLoopActive = true;
+    requestAnimationFrame(dragLoop);
 }
 
 function onPointerMove(e: PointerEvent): void {
     lastClientX = e.clientX;
     lastClientY = e.clientY;
-
-    if (!rafPending) {
-        rafPending = true;
-        requestAnimationFrame(() => {
-            updateDragPosition();
-            updateDropTarget();
-            rafPending = false;
-        });
-    }
+    targetX = lastClientX - startX;
+    targetY = lastClientY - startY;
 }
 
-function updateDragPosition(): void {
-    if (!dragCard) return;
-    const dx = lastClientX - startX;
-    const dy = lastClientY - startY;
-    dragCard.style.transform = `translate(${dx}px, ${dy}px) scale(1.02)`;
+function dragLoop(): void {
+    if (!dragLoopActive || !dragCard) return;
+
+    renderX += (targetX - renderX) * FOLLOW_EASE;
+    renderY += (targetY - renderY) * FOLLOW_EASE;
+
+    const lag = targetX - renderX;
+    const tilt = Math.max(-8, Math.min(8, lag * 0.45));
+
+    dragCard.style.transform = `translate(${renderX}px, ${renderY}px) scale(1.04) rotate(${tilt}deg)`;
+
+    updateDropTarget();
+    requestAnimationFrame(dragLoop);
 }
 
 function updateDropTarget(): void {
@@ -284,6 +304,8 @@ function updateDropTarget(): void {
 }
 
 function onPointerUp(): void {
+    dragLoopActive = false;
+    document.body.classList.remove('is-dragging-card');
     document.querySelectorAll('.column').forEach(c => c.classList.remove('drag-over'));
     document.removeEventListener('pointermove', onPointerMove);
     document.removeEventListener('pointerup', onPointerUp);
@@ -307,12 +329,13 @@ function onPointerUp(): void {
     const cardRectAfter = dragCard.getBoundingClientRect();
     const dx = phRectBefore.left - cardRectAfter.left;
     const dy = phRectBefore.top - cardRectAfter.top;
-    dragCard.style.transform = `translate(${dx}px, ${dy}px) scale(1.02)`;
+    dragCard.style.transform = `translate(${dx}px, ${dy}px) scale(1.04)`;
 
     const settledCard = dragCard;
     requestAnimationFrame(() => {
         settledCard.classList.remove('dragging');
-        settledCard.style.transition = 'transform 220ms cubic-bezier(0.2,0,0,1), box-shadow 220ms ease';
+        // slight overshoot on settle for a springy feel
+        settledCard.style.transition = 'transform 320ms cubic-bezier(0.34, 1.42, 0.64, 1), box-shadow 220ms ease';
         settledCard.style.transform = '';
     });
 
@@ -322,17 +345,12 @@ function onPointerUp(): void {
     };
     settledCard.addEventListener('transitionend', onSettled);
 
-    // ---- this is the only line that talks to your CRUD layer ----
     board.updateTaskStatus(dragId, newStatus);
 
     playDropSound();
 
-    // counts need refreshing on both the origin and destination columns
     STATUSES.forEach(updateCount);
 
-    // NOTE: in-column reordering is visual only right now because Task
-    // has no `order` field. If you want persisted order, add `order: number`
-    // to Task and update it here based on the card's new index in targetList.
 
     dragCard = null;
     placeholder = null;
@@ -373,9 +391,9 @@ const dropAudio = new Audio('https://www.myinstants.com/media/sounds/pou-sound-e
 dropAudio.volume = 0.7;
  
 function playDropSound(): void {
-    dropAudio.currentTime = 0; // Rewind so rapid repeat drops still play from the start
+    dropAudio.currentTime = 0; 
     dropAudio.play().catch(() => {
-        // Autoplay can still be blocked on the very first interaction — safe to ignore
+        
     });
 }
 
